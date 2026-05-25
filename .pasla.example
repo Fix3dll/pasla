@@ -1,0 +1,104 @@
+# ═══════════════════════════════════════════════════════════════════
+# pasla configuration file
+# ═══════════════════════════════════════════════════════════════════
+#
+# Copy this file to the platform-specific config path:
+#
+#   POSIX   : ~/.config/pasla
+#   Windows : %USERPROFILE%\.pasla
+#   Override: set PASLA_CONFIG=/path/to/config
+#
+# Priority for the keys in this file:
+#   CLI argument  >  this file  >  built-in default
+#
+# These keys have NO environment-variable override.  PASLA_* env vars
+# exist only for advanced tuning limits (PASLA_SOCKET_TIMEOUT, etc.),
+# which in turn have no CLI flag and no config-file key.
+#
+# All keys are optional.  Uncomment and edit the ones you need.
+# Lines starting with # or ; are comments.
+#
+# This file is read-only - pasla never creates or modifies it.
+
+[server]
+# Duration in minutes before the server auto-expires.
+# CLI: pasla <file> <duration>
+# Default: 60
+# duration = 60
+
+# Maximum number of downloads before auto-shutdown.
+# 0 = unlimited.
+# CLI: pasla <file> <duration> <max_downloads>
+# Default: 0
+# max_downloads = 0
+
+# Port to bind to.
+# 0 = OS-assigned random port.
+# Default: random port in 40000-50000
+# CLI: -p / --port
+# port = 8080
+
+# IP protocol mode:
+#   "4" = IPv4 only
+#   "6" = IPv6 only
+#   (omit for dual-stack: both IPv4 and IPv6)
+# CLI: -4 / -6
+# ip_mode = 4
+
+[security]
+# Trust X-Forwarded-For (or a custom header) from a reverse proxy
+# for client IP identification.
+#
+# ⚠️ Enable ONLY when running behind a trusted reverse proxy
+# (Nginx, Cloudflare, etc.).  NEVER enable on a server that is
+# directly internet-facing - attackers can spoof the header and
+# bypass all IP-based rate limiting, bans, and CIDR restrictions.
+#
+# CLI: --trust-proxy
+# Default: false
+# trust_proxy = false
+
+# When trust_proxy is true, read the client IP from this specific
+# single-value header instead of X-Forwarded-For (rightmost entry).
+#
+# Well-known edge headers:
+#   CF-Connecting-IP   - Cloudflare
+#   Fastly-Client-IP   - Fastly
+#   Fly-Client-IP      - Fly.io
+#   X-Real-IP          - Nginx, Caddy, generic reverse proxy
+#
+# CLI: --trust-header <NAME>
+# trust_header = CF-Connecting-IP
+
+[tls]
+# Enable HTTPS.  Without cert/key below, an ephemeral self-signed
+# ECDSA certificate is generated at startup and removed on shutdown.
+# Requires openssl CLI on PATH for ephemeral mode.
+#
+# When both cert and key resolve to readable PEM files, HTTPS is
+# auto-enabled - no need to set https = true separately.
+#
+# CLI: --https / --no-https
+# Default: false
+# https = false
+
+# Path to an existing PEM certificate (or fullchain).
+# CLI: --tls-cert
+# cert = /etc/letsencrypt/live/share.example.com/fullchain.pem
+
+# Path to the matching PEM private key.
+# If the key is encrypted, set PASLA_TLS_KEY_PASSWORD in the
+# environment (not here - keep passwords out of config files).
+# CLI: --tls-key
+# key = /etc/letsencrypt/live/share.example.com/privkey.pem
+
+[update]
+# pasla checks once per 24h whether a newer release exists.  It fetches
+# a tiny VERSION file from the public repository over HTTPS, logs a
+# notice if an update is available, and does nothing else - it never
+# downloads or installs anything (no auto-update by design).
+#
+# This is the only outbound request pasla makes that is not needed to
+# serve your file.  Set check = false to disable it entirely.
+# Default: true
+# check = true

@@ -1,0 +1,30 @@
+[project]
+name = "pasla"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Show local variables in tracebacks for easier debugging.
+# -ra: short test summary for all except passed.
+addopts = "-ra"
+# Treat every warning as an error to catch subtle issues.
+filterwarnings = ["error"]
+# Minimum pytest version guard.
+minversion = "7.0"
+
+[tool.coverage.run]
+# pasla has no .py extension — point coverage at the bare file.
+source = ["."]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+# Lines that are genuinely untestable (platform guards, etc.)
+exclude_lines = [
+    "pragma: no cover",
+    "if sys.platform",
+    "if os.name",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
