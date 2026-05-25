@@ -892,8 +892,3 @@ no `time.sleep` in tests, narrow exception clauses.
 
 `pasla` is licensed under the **GNU Affero General Public License v3.0**.
 See [`LICENSE.md`](LICENSE.md) for the full text.
-
-The AGPL choice is deliberate: if you run `pasla` (modified or not) as
-a service that other people interact with, you must offer those users
-the corresponding source code.  This keeps the tool's audit-trail
-intact even when it's deployed behind a wall.

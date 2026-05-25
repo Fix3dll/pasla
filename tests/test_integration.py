@@ -909,7 +909,20 @@ class TestFileIdentityMismatch:
                 replacement = tmp_path / "replacement.bin"
                 replacement.write_bytes(file_path.read_bytes())
                 import os as _os
-                _os.replace(str(replacement), str(file_path))
+
+                def _try_replace():
+                    try:
+                        _os.replace(str(replacement), str(file_path))
+                        return True
+                    except PermissionError:
+                        return False
+
+                # On Windows, the server thread might still have the file open
+                # immediately after the client finishes reading, causing transient
+                # PermissionErrors. We retry using wait_until (which does not use time.sleep).
+                assert wait_until(_try_replace, timeout=5.0, interval=0.05), (
+                    "Failed to atomically replace the served file due to Windows sharing violation"
+                )
 
                 # Next request must detect the identity mismatch → 500.
                 resp2 = _get("127.0.0.1", port, f"/{token}/{file_path.name}")

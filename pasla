@@ -8,7 +8,7 @@ Serves a single file (or directory, auto-archived as tar) over HTTP/HTTPS with a
 time-limited, token-protected URL.  Supports resumable downloads (HTTP Range),
 SHA-256 integrity verification, and is hardened against common attack vectors.
 
-Compatibility : Python 3.9+  (recommended: Python 3.14+ for free-threaded mode)
+Compatibility : Python 3.9+  (free-threaded: Python 3.13t+, recommended: 3.14t)
 Dependencies  : none (standard library only; openssl CLI required for --https)
 
 ────────────────────────────────────────────────────────
@@ -102,8 +102,8 @@ CONFIG FILE
 
   Priority: CLI argument > environment variable > config file > default
 
-FREE-THREADED MODE (Python 3.14+)
-  python3.14t pasla report.zip
+FREE-THREADED MODE (Python 3.13t+)
+  python3.13t pasla report.pdf
 
 SECTIONS (search by ruler)
   Configuration ................. constants and tuning knobs
