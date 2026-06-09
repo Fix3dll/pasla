@@ -814,6 +814,25 @@ class TestTarDirectory:
         with tarfile.open(tar_path) as tf:
             assert tf.getnames() == []
 
+    def test_failed_archive_removes_temp_dir(self, tmp_path, monkeypatch):
+        """When archiving fails, the .tmp_* workspace (including its
+        .pasla_lock file) must be removed - not left orphaned until
+        the next ``pasla list`` sweep."""
+        registry = tmp_path / "registry"
+        monkeypatch.setattr(pasla, "REGISTRY_DIR", registry)
+        d = tmp_path / "dir_fail"
+        d.mkdir()
+        (d / "a.txt").write_text("data", encoding="utf-8")
+
+        def failing_tarfile_open(*a, **k):
+            raise OSError("disk full")
+        monkeypatch.setattr(pasla.tarfile, "open", failing_tarfile_open)
+
+        with pytest.raises(OSError):
+            pasla._tar_directory(str(d))
+
+        assert list(registry.glob(".tmp_*")) == []
+
     @pytest.mark.skipif(sys.platform == "win32",
                         reason="Symlink creation requires elevated privileges on Windows")
     def test_path_swapped_to_symlink_mid_archiving_is_skipped(

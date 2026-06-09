@@ -202,7 +202,7 @@ log = logging.getLogger("pasla")
 # file is the single source of truth; this constant MUST match it and a
 # test enforces that.  Exposed via --version, the control plane
 # get_status(), and --json - deliberately NOT in the HTTP Server header.
-__version__ = "2026.1.1"
+__version__ = "2026.1.2"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -1125,11 +1125,17 @@ def _tar_directory(directory: str) -> str:
     except OSError:
         # OSError covers disk full / permission denied while writing
         # individual entries.  Clean up the partial tar and temp
-        # directory on failure.
+        # directory on failure.  The .pasla_lock file written at
+        # directory creation must go first - rmdir on a non-empty
+        # directory always fails with ENOTEMPTY.
         try:
             os.unlink(tar_path)
         except OSError:
             log.debug("Failed to remove partial tar %s", tar_path, exc_info=True)
+        try:
+            os.unlink(tmp_dir / ".pasla_lock")
+        except OSError:
+            log.debug("Failed to remove lock file in %s", tmp_dir, exc_info=True)
         try:
             os.rmdir(tmp_dir)
         except OSError:
