@@ -212,6 +212,26 @@ class TestRangeRequests:
                     headers={"Range": f"bytes={file_size}-{file_size+100}"})
         assert resp.status == 416
 
+    def test_unknown_range_unit_served_full(self, live_server):
+        """An unknown range unit MUST be ignored (RFC 9110 §14.2):
+        the server answers 200 with the complete body, not 416."""
+        full = Path(live_server.file_path).read_bytes()
+        resp = _get(live_server.host, live_server.port,
+                    f"/{live_server.token}/{live_server.file_name}",
+                    headers={"Range": "items=0-100"})
+        assert resp.status == 200
+        assert resp.read() == full
+
+    def test_multi_range_served_full(self, live_server):
+        """Unsupported multi-range specs are ignored and answered
+        with 200 + full body."""
+        full = Path(live_server.file_path).read_bytes()
+        resp = _get(live_server.host, live_server.port,
+                    f"/{live_server.token}/{live_server.file_name}",
+                    headers={"Range": "bytes=0-10,20-30"})
+        assert resp.status == 200
+        assert resp.read() == full
+
     def test_suffix_range(self, live_server):
         """bytes=-50 means the last 50 bytes of the file."""
         full = Path(live_server.file_path).read_bytes()

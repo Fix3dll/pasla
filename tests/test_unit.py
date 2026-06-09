@@ -67,23 +67,33 @@ class TestParseRangeHeader:
     def test_end_beyond_file_clamped(self):
         assert pasla.parse_range_header("bytes=0-9999", 1000) == (0, 999)
 
-    def test_multi_range_rejected(self):
+    def test_multi_range_ignored(self):
+        """Multi-range specs are unsupported and ignored — the server
+        answers 200 with the full body, never 416."""
         assert pasla.parse_range_header("bytes=0-100,200-300", 1000) is None
 
-    def test_wrong_unit_rejected(self):
+    def test_wrong_unit_ignored(self):
+        """Unknown range units MUST be ignored (RFC 9110 §14.2)."""
         assert pasla.parse_range_header("items=0-100", 1000) is None
 
-    def test_inverted_range_rejected(self):
+    def test_inverted_range_ignored(self):
+        """last-byte-pos < first-byte-pos is an invalid byte-range-spec
+        and MUST be ignored."""
         assert pasla.parse_range_header("bytes=500-100", 1000) is None
 
-    def test_start_beyond_file_rejected(self):
-        assert pasla.parse_range_header("bytes=1000-1005", 1000) is None
+    def test_start_beyond_file_unsatisfiable(self):
+        """A valid spec pointing past EOF is unsatisfiable → 416."""
+        assert (pasla.parse_range_header("bytes=1000-1005", 1000)
+                is pasla.RANGE_UNSATISFIABLE)
 
-    def test_negative_start_rejected(self):
+    def test_negative_start_ignored(self):
         assert pasla.parse_range_header("bytes=-1-100", 1000) is None
 
-    def test_zero_suffix_rejected(self):
-        assert pasla.parse_range_header("bytes=-0", 1000) is None
+    def test_zero_suffix_unsatisfiable(self):
+        """A zero suffix-length is syntactically valid but never
+        satisfiable → 416."""
+        assert (pasla.parse_range_header("bytes=-0", 1000)
+                is pasla.RANGE_UNSATISFIABLE)
 
     def test_malformed_no_dash(self):
         assert pasla.parse_range_header("bytes=100", 1000) is None

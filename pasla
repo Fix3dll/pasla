@@ -202,7 +202,7 @@ log = logging.getLogger("pasla")
 # file is the single source of truth; this constant MUST match it and a
 # test enforces that.  Exposed via --version, the control plane
 # get_status(), and --json - deliberately NOT in the HTTP Server header.
-__version__ = "2026.1.0"
+__version__ = "2026.1.1"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -2499,7 +2499,25 @@ def _path_segment_count(path: str) -> int:
     return sum(1 for seg in path.split("/") if seg)
 
 
-def parse_range_header(header: str, file_size: int) -> tuple[int, int] | None:
+# Sentinel returned by parse_range_header for a syntactically valid
+# bytes-range that cannot be satisfied (start beyond EOF, zero-length
+# suffix).  Distinct from ``None``, which means "ignore the header and
+# serve the full file" - RFC 9110 §14.2 requires unknown range units
+# and malformed specs to be ignored, not rejected with 416.
+RANGE_UNSATISFIABLE = object()
+
+
+def parse_range_header(header: str, file_size: int):
+    """Parse a ``Range`` header against ``file_size``.
+
+    Returns:
+      * ``(start, end)``        - satisfiable single bytes-range.
+      * ``None``                - no header, unknown unit, multi-range,
+                                  or malformed/inverted spec; the caller
+                                  must ignore the header (200, full body).
+      * ``RANGE_UNSATISFIABLE`` - valid bytes-range that cannot be
+                                  satisfied; the caller must answer 416.
+    """
     if not header:
         return None
     header = header.strip()
@@ -2518,7 +2536,9 @@ def parse_range_header(header: str, file_size: int) -> tuple[int, int] | None:
                 return None
             suffix = int(end_str)
             if suffix <= 0:
-                return None
+                # Zero suffix-length is syntactically valid but never
+                # satisfiable (RFC 9110 §14.1.2).
+                return RANGE_UNSATISFIABLE
             start = max(0, file_size - suffix)
             end   = file_size - 1
         else:
@@ -2526,8 +2546,12 @@ def parse_range_header(header: str, file_size: int) -> tuple[int, int] | None:
             end   = int(end_str) if end_str else file_size - 1
     except ValueError:
         return None
-    if start < 0 or end < start or start >= file_size:
+    if start < 0 or end < start:
+        # Inverted range: invalid byte-range-spec, MUST be ignored.
         return None
+    if start >= file_size:
+        # Valid spec pointing beyond EOF: unsatisfiable.
+        return RANGE_UNSATISFIABLE
     return start, min(end, file_size - 1)
 
 # ---------------------------------------------------------------------------
@@ -3053,7 +3077,7 @@ def make_handler(
             range_header = self.headers.get("Range", "")
             parsed_range = parse_range_header(range_header, file_size)
 
-            if range_header and parsed_range is None:
+            if parsed_range is RANGE_UNSATISFIABLE:
                 self.send_response(416)
                 self.send_header("Content-Range", f"bytes */{file_size}")
                 self.send_header("Content-Length", "0")
