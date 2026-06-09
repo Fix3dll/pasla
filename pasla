@@ -202,7 +202,7 @@ log = logging.getLogger("pasla")
 # file is the single source of truth; this constant MUST match it and a
 # test enforces that.  Exposed via --version, the control plane
 # get_status(), and --json - deliberately NOT in the HTTP Server header.
-__version__ = "2026.1.2"
+__version__ = "2026.1.3"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -594,14 +594,16 @@ def _make_server(
 # Protected by three independent locks:
 #   security_lock  - banned_ips, failed_attempts
 #   rate_lock      - request_log, active_connections, global_connections
-#   transfer_lock  - download_count, bytes_transferred, active_transfers
+#   transfer_lock  - download_count, completed_downloads,
+#                    bytes_transferred, active_transfers
 # ---------------------------------------------------------------------------
 
 security_lock      = threading.Lock()    # banned_ips, failed_attempts
 rate_lock          = threading.Lock()    # request_log, active_connections, global_connections
-transfer_lock      = threading.Lock()    # download_count, bytes_transferred, active_transfers
+transfer_lock      = threading.Lock()    # download_count, completed_downloads, bytes_transferred, active_transfers
 
-download_count     = 0
+download_count     = 0                   # download SLOTS consumed (capped mode only)
+completed_downloads = 0                  # transfers fully delivered (any mode)
 bytes_transferred  = 0                   # cumulative bytes sent
 global_connections = 0                   # total active connections across all IPs
 
@@ -2253,6 +2255,12 @@ def _release_transfer(transfer_id: str, completed: bool, max_downloads: int,
     with transfer_lock:
         slot_consumed = active_transfers.get(transfer_id) == _SLOT_IN_USE
         if completed:
+            # Track fully delivered transfers separately from slot
+            # accounting: download_count only moves in capped mode, so
+            # without this counter an unlimited server would report
+            # zero downloads forever in the TUI and ``pasla list``.
+            global completed_downloads
+            completed_downloads += 1
             active_transfers.pop(transfer_id, None)
         elif slot_consumed and bytes_sent == 0:
             active_transfers.pop(transfer_id, None)
@@ -2272,6 +2280,11 @@ def _release_transfer(transfer_id: str, completed: bool, max_downloads: int,
 def _current_download_count() -> int:
     with transfer_lock:
         return download_count
+
+
+def _current_completed_downloads() -> int:
+    with transfer_lock:
+        return completed_downloads
 
 
 def _add_bytes_transferred(n: int) -> None:
@@ -2944,10 +2957,16 @@ def make_handler(
                     range_info = (
                         f" range={start}-{end}/{file_size}" if is_partial else ""
                     )
+                    # Slot accounting only exists in capped mode; an
+                    # unlimited server logs without the meaningless
+                    # "slot 0/∞" prefix.
+                    slot_info = (
+                        f" (slot {count}/{max_downloads})"
+                        if max_downloads > 0 else ""
+                    )
                     log.info(
-                        "Transfer complete (slot %d/%s) - %s id=%s%s",
-                        count,
-                        str(max_downloads) if max_downloads > 0 else "∞",
+                        "Transfer complete%s - %s id=%s%s",
+                        slot_info,
                         ip,
                         transfer_id,
                         range_info,
@@ -3567,7 +3586,12 @@ class _StatusBar:
         # bar lock is never held while transfer_lock is acquired.  This
         # matches the ordering _LiveLogHandler.emit relies on and keeps a
         # single, consistent lock order across every bar redraw path.
-        dl_snapshot = _current_download_count()
+        # Capped mode shows slots consumed; unlimited mode shows the
+        # completed-transfer count (slots never move when there is no cap).
+        dl_snapshot = (
+            _current_download_count() if self._max_downloads > 0
+            else _current_completed_downloads()
+        )
         xfer_snapshot = _current_bytes_transferred()
         with self._lock:
             self._draw_unlocked(
@@ -3596,7 +3620,12 @@ class _StatusBar:
             self._cols = 80
 
         remaining = _fmt_remaining(self._started, self._duration)
-        dl = dl_snapshot if dl_snapshot is not None else _current_download_count()
+        if dl_snapshot is not None:
+            dl = dl_snapshot
+        elif self._max_downloads > 0:
+            dl = _current_download_count()
+        else:
+            dl = _current_completed_downloads()
         cap = str(self._max_downloads) if self._max_downloads > 0 else "∞"
         xfer_value = (
             xfer_snapshot if xfer_snapshot is not None
@@ -3655,7 +3684,10 @@ class _LiveLogHandler(logging.Handler):
             # section guarantees we never hold both locks at once,
             # so a slow terminal cannot stall request threads that
             # are racing to update the same counters.
-            dl_snapshot = _current_download_count()
+            dl_snapshot = (
+                _current_download_count() if self._bar._max_downloads > 0
+                else _current_completed_downloads()
+            )
             xfer_snapshot = _current_bytes_transferred()
             with self._bar._lock:
                 sys.stdout.write("\r" + " " * self._bar._cols + "\r")
@@ -4019,8 +4051,13 @@ def _render_table(live_rows: list[dict]) -> None:
 
     for idx, r in enumerate(live_rows):
         dl_cap  = r.get("max_downloads", 0)
-        dl_cur  = r.get("download_count", 0)
-        dl_str  = f"{dl_cur}/{dl_cap}" if dl_cap > 0 else f"{dl_cur}/∞"
+        if dl_cap > 0:
+            dl_str = f"{r.get('download_count', 0)}/{dl_cap}"
+        else:
+            # Unlimited mode: slots never move, show completed transfers.
+            completed = r.get("completed_downloads",
+                              r.get("download_count", 0))
+            dl_str = f"{completed}/∞"
         rem_sec = r.get("remaining_seconds", 0)
         m, s = divmod(rem_sec, 60)
         h, m = divmod(m, 60)
@@ -4521,6 +4558,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
                 "remaining_seconds": max(0, int(started_at + duration - now)),
                 "duration":          duration,
                 "download_count":    _current_download_count(),
+                "completed_downloads": _current_completed_downloads(),
                 "max_downloads":     max_downloads,
                 "bytes_transferred": _current_bytes_transferred(),
                 # Thread-safe accessors - required for free-threaded

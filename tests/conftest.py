@@ -115,6 +115,7 @@ def reset_state():
     """
     def _reset():
         pasla.download_count     = 0
+        pasla.completed_downloads = 0
         pasla.bytes_transferred  = 0
         pasla.global_connections = 0
         pasla.banned_ips.clear()

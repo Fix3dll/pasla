@@ -420,6 +420,34 @@ class TestTransferQuota:
         # download_count stays 0 for unlimited.
         assert pasla.download_count == 0
 
+    def test_completed_downloads_counted_in_unlimited_mode(self):
+        """Unlimited mode never moves download_count (slot accounting),
+        so completed transfers are tracked in completed_downloads —
+        this is what the TUI and ``pasla list`` display."""
+        for i in range(3):
+            tid = f"done-{i}"
+            pasla._register_transfer(tid)
+            assert pasla._ensure_slot_reserved(tid, max_downloads=0)
+            pasla._release_transfer(tid, completed=True, max_downloads=0)
+        assert pasla.download_count == 0
+        assert pasla._current_completed_downloads() == 3
+
+    def test_completed_downloads_counted_in_capped_mode(self):
+        tid = "done-capped"
+        pasla._register_transfer(tid)
+        assert pasla._ensure_slot_reserved(tid, max_downloads=5)
+        pasla._release_transfer(tid, completed=True, max_downloads=5)
+        assert pasla.download_count == 1
+        assert pasla._current_completed_downloads() == 1
+
+    def test_aborted_transfer_not_counted_as_completed(self):
+        tid = "aborted"
+        pasla._register_transfer(tid)
+        pasla._ensure_slot_reserved(tid, max_downloads=0)
+        pasla._release_transfer(tid, completed=False, max_downloads=0,
+                                bytes_sent=1024)
+        assert pasla._current_completed_downloads() == 0
+
     def test_resume_after_partial_abort_does_not_double_count(self):
         """A capped resume must reuse the consumed slot, not count again.
 
@@ -1302,6 +1330,27 @@ class TestStatusBar:
             bar.draw()
         output = buf.getvalue()
         assert "\u221e" in output       # ∞
+
+    def test_draw_unlimited_shows_completed_downloads(self):
+        """In unlimited mode the bar counts completed transfers --
+        download_count (slot accounting) never moves without a cap,
+        so the bar would otherwise show 0/inf forever."""
+        bar = self._make_bar(remaining=60, max_downloads=0)
+        pasla.completed_downloads = 7
+        buf = io.StringIO()
+        with mock.patch("sys.stdout", buf):
+            bar.draw()
+        assert "7/∞" in buf.getvalue()
+
+    def test_draw_capped_shows_slot_count(self):
+        """In capped mode the bar keeps showing slots consumed."""
+        bar = self._make_bar(remaining=60, max_downloads=5)
+        pasla.download_count = 2
+        pasla.completed_downloads = 1
+        buf = io.StringIO()
+        with mock.patch("sys.stdout", buf):
+            bar.draw()
+        assert "2/5" in buf.getvalue()
 
     def test_draw_truncates_long_bar(self):
         """If the bar is wider than terminal, it must be truncated with '\u2026'.

@@ -122,7 +122,7 @@ When modifying security-relevant code, verify every item below. This is not opti
 7. **Response header hygiene:** `server_version = "pasla"` (without version number) and `sys_version = ""` suppress Python and pasla version leakage in HTTP response headers. The version is intentionally omitted from HTTP responses to prevent targeted attacks based on fingerprinting a specific release. Version tracking is maintained internally via the control plane `get_status()` response and `--json` output. The empty `log_message()` and `log_request()` overrides suppress default `BaseHTTPRequestHandler` stderr output. Do not revert these.
 8. **Connection teardown under partial reads:** The control plane caps inbound messages at `CTRL_MAX_MESSAGE_BYTES` and enforces `CTRL_TIMEOUT` per connection. `SecureHandler.setup()` sets `SOCKET_TIMEOUT` on every connection socket to prevent slowloris attacks. Removing these timeouts is a DoS vector.
 9. **Global connection cap:** `_try_increment_global_connections()` is checked in `process_request()` BEFORE a worker thread is spawned. Connections at cap are hard-dropped via `request.close()` without creating a thread or reading any data. If thread creation fails (`RuntimeError: can't start new thread`), the counter is decremented in a `try/except` block before re-raising. This is the DDoS pre-filter — it must remain the first check.
-10. **Variable leak prevention:** Mutable shared state (`banned_ips`, `failed_attempts`, `request_log`, `active_connections`, `download_count`, `bytes_transferred`, `global_connections`, `active_transfers`) MUST only be accessed while holding the corresponding lock.
+10. **Variable leak prevention:** Mutable shared state (`banned_ips`, `failed_attempts`, `request_log`, `active_connections`, `download_count`, `completed_downloads`, `bytes_transferred`, `global_connections`, `active_transfers`) MUST only be accessed while holding the corresponding lock.
 
 ---
 
@@ -148,7 +148,7 @@ Handler configuration (trust_proxy, max_downloads) MUST be set at server creatio
 
 ### State Isolation
 
-The `reset_state` fixture (autouse) clears all mutable global state before and after each test: `download_count`, `bytes_transferred`, `global_connections`, `banned_ips`, `failed_attempts`, `request_log`, `active_connections`, `active_transfers`, `download_history`, and `shutting_down`. It also resets `ALLOWED_ROOT` to the current working directory and snapshots/restores the `pasla` logger's handlers and `propagate` flag, so foreground/TUI tests that mutate the logger cannot leak that state into later tests.
+The `reset_state` fixture (autouse) clears all mutable global state before and after each test: `download_count`, `completed_downloads`, `bytes_transferred`, `global_connections`, `banned_ips`, `failed_attempts`, `request_log`, `active_connections`, `active_transfers`, `download_history`, and `shutting_down`. It also resets `ALLOWED_ROOT` to the current working directory and snapshots/restores the `pasla` logger's handlers and `propagate` flag, so foreground/TUI tests that mutate the logger cannot leak that state into later tests.
 
 ### Timing-Sensitive Tests
 
