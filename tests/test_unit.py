@@ -4147,10 +4147,74 @@ class TestHandleJoinsHeaderTimer:
 
 
 # ---------------------------------------------------------------------------
+# _send_chunk — per-chunk stall guard (slow-read DoS defence)
+# ---------------------------------------------------------------------------
+
+class TestTransferStallGuard:
+    """``_send_chunk`` enforces a wall-clock deadline per chunk so a
+    client that trickle-reads cannot tie up a worker thread forever.
+    These tests are deterministic: the deadline is forced to zero, no
+    sleeping involved."""
+
+    def _make_handler(self, tmp_path, fake_socket):
+        f = tmp_path / "stall.bin"
+        f.write_bytes(b"x" * 1024)
+        Handler = pasla.make_handler(
+            file_path=str(f), file_name="stall.bin", token="t",
+            max_downloads=0, trust_proxy=False,
+        )
+        h = Handler.__new__(Handler)
+        h.connection = fake_socket
+        h.client_address = ("203.0.113.9", 1)
+        return h, f
+
+    def test_stalled_chunk_raises_timeout(self, tmp_path, monkeypatch):
+        """A chunk that cannot be fully pushed before the deadline must
+        abort with TimeoutError - this is the slow-read defence."""
+        monkeypatch.setattr(pasla, "TRANSFER_STALL_TIMEOUT", 0)
+
+        class TrickleSocket:
+            def send(self, data):
+                return 1   # one byte per call → deadline check trips
+
+        h, _ = self._make_handler(tmp_path, TrickleSocket())
+        with pytest.raises(TimeoutError):
+            h._send_chunk(memoryview(b"abcdef"), "203.0.113.9")
+
+    def test_zero_send_raises_connection_error(self, tmp_path):
+        """send() returning 0 means the peer is gone - must raise."""
+        class DeadSocket:
+            def send(self, data):
+                return 0
+
+        h, _ = self._make_handler(tmp_path, DeadSocket())
+        with pytest.raises(ConnectionError):
+            h._send_chunk(memoryview(b"abc"), "203.0.113.9")
+
+    def test_stream_file_reports_incomplete_on_stall(
+        self, tmp_path, monkeypatch,
+    ):
+        """``_stream_file`` must absorb the stall TimeoutError and
+        report (completed=False, bytes_sent) so the slot-refund logic
+        in ``_release_transfer`` sees the truth."""
+        monkeypatch.setattr(pasla, "TRANSFER_STALL_TIMEOUT", 0)
+
+        class TrickleSocket:
+            def send(self, data):
+                return 1
+
+        h, f = self._make_handler(tmp_path, TrickleSocket())
+        with open(f, "rb") as fh:
+            completed, sent = h._stream_file(fh, 0, 1024, "203.0.113.9")
+        assert completed is False
+        assert sent < 1024
+
+
+# ---------------------------------------------------------------------------
 # _close_on_timeout — header deadline enforcement
 #
-# A Timer thread fires _close_on_timeout() to kill connections that stall
-# during header parsing (slowloris protection).
+# The shared maintenance-thread reaper (and the per-recv socket timeout)
+# kill connections that stall during header parsing (slowloris protection).
 # ---------------------------------------------------------------------------
 
 class TestCloseOnTimeout:
