@@ -116,11 +116,11 @@ When modifying security-relevant code, verify every item below. This is not opti
 1. **Token comparison timing safety:** All path/token comparisons MUST use `hmac.compare_digest()` to prevent timing side-channels. Direct `==` comparison on tokens or URL paths is a vulnerability.
 2. **X-Forwarded-For isolation:** `X-Forwarded-For` MUST be read ONLY when `trust_proxy=True` (a closure parameter set at handler creation time, not a runtime global). The **rightmost** entry is used (standard secure choice per RFC 7239).
 3. **Path traversal defense:** Incoming paths go through strict UTF-8 `unquote` (rejects over-long encodings such as the `%c0%ae` form of `..`), null byte rejection, backslash-to-slash conversion, `posixpath.normpath`, then `hmac.compare_digest` against the expected path. ALL five steps are required. Removing any one of them opens a traversal vector.
-4. **Lock acquisition order:** `security_lock`, `rate_lock`, and `transfer_lock` MUST NEVER be nested. Each protects an independent variable group. A function that holds one lock MUST NOT acquire another.
+4. **Lock acquisition order:** `security_lock`, `rate_lock`, `transfer_lock`, and `reaper_lock` MUST NEVER be nested. Each protects an independent variable group. A function that holds one lock MUST NOT acquire another.
 5. **Registry file integrity:** Registry JSON files are written atomically via `tempfile.mkstemp` + `os.replace`. The `write_registry` function uses a `closed` flag to prevent double `os.close()` on error paths. Do not simplify this pattern.
 6. **Control plane authentication:** The control plane binds exclusively to `127.0.0.1`. The accept loop additionally verifies `addr[0] == "127.0.0.1"` and rejects non-loopback connections. Both checks are required — removing either one is a vulnerability.
 7. **Response header hygiene:** `server_version = "pasla"` (without version number) and `sys_version = ""` suppress Python and pasla version leakage in HTTP response headers. The version is intentionally omitted from HTTP responses to prevent targeted attacks based on fingerprinting a specific release. Version tracking is maintained internally via the control plane `get_status()` response and `--json` output. The empty `log_message()` and `log_request()` overrides suppress default `BaseHTTPRequestHandler` stderr output. Do not revert these.
-8. **Connection teardown under partial reads:** The control plane caps inbound messages at `CTRL_MAX_MESSAGE_BYTES` and enforces `CTRL_TIMEOUT` per connection. `SecureHandler.setup()` sets `SOCKET_TIMEOUT` on every connection socket to prevent slowloris attacks. Removing these timeouts is a DoS vector.
+8. **Connection teardown under partial reads:** The control plane caps inbound messages at `CTRL_MAX_MESSAGE_BYTES` and enforces a server-side `CTRL_READ_TIMEOUT` wall-clock deadline per connection (`CTRL_TIMEOUT` is the client-side connect/recv timeout). `SecureHandler.setup()` sets the shorter `HEADER_READ_TIMEOUT` on every connection socket and registers an absolute header deadline with the reaper; the timeout is extended to `SOCKET_TIMEOUT` only after headers are fully parsed. Removing any of these timeouts is a DoS vector.
 9. **Global connection cap:** `_try_increment_global_connections()` is checked in `process_request()` BEFORE a worker thread is spawned. Connections at cap are hard-dropped via `request.close()` without creating a thread or reading any data. If thread creation fails (`RuntimeError: can't start new thread`), the counter is decremented in a `try/except` block before re-raising. This is the DDoS pre-filter — it must remain the first check.
 10. **Variable leak prevention:** Mutable shared state (`banned_ips`, `failed_attempts`, `request_log`, `active_connections`, `download_count`, `completed_downloads`, `bytes_transferred`, `global_connections`, `active_transfers`) MUST only be accessed while holding the corresponding lock.
 
@@ -242,7 +242,7 @@ A given task is considered complete ONLY when ALL of the following are true:
 5. The single-file distribution paradigm (`pasla` script has no sibling utility modules) is strictly maintained.
 6. The TUI correctly functions visually without tearing or freezing.
 7. No new bare `except:` blocks were introduced. All exception handlers either target specific exceptions or log via `log.debug(..., exc_info=True)`.
-8. All lock nesting rules are respected — no function acquires more than one of `security_lock`, `rate_lock`, `transfer_lock`.
+8. All lock nesting rules are respected — no function acquires more than one of `security_lock`, `rate_lock`, `transfer_lock`, `reaper_lock`.
 9. The control plane remains bound exclusively to `127.0.0.1` after the change.
 10. If the change is user-visible (new feature, changed behavior, new CLI argument), `__version__` is bumped (with the `VERSION` file) and the README reflects the change.
 11. No regression in test coverage below the 85% target. # inferred — confirm with maintainer
@@ -269,7 +269,7 @@ A complete successful request should produce log entries at these stages:
 5. **Transfer complete** — `release_transfer()` with `completed=True`, download count logged
 6. **Graceful shutdown** — if download cap reached, `_request_shutdown()` triggered
 
-If any stage fails, the corresponding error response (400, 403, 404, 410, 416, 429, 503) is logged with the client IP.
+If any stage fails, the corresponding error response (400, 403, 404, 405, 410, 416, 429, 500, 503) is logged with the client IP.
 
 ### Common Debugging Scenarios
 
@@ -301,7 +301,7 @@ These are sharp edges in the codebase that exist for good reasons. Do not "fix" 
 
 ### DualStack Bind Fallback
 
-**What:** `_make_server()` checks `socket.has_dualstack_ipv6()` before attempting IPv6 bind. If it returns `False`, the server silently falls back to IPv4 with a warning log. This is a **boolean branch**, not an exception catch.
+**What:** `_make_server()` checks `socket.has_dualstack_ipv6()` before attempting IPv6 bind. If it returns `False`, the server silently falls back to IPv4 with a warning log. This is a **boolean branch**, not an exception catch. Separately, when the boolean check passes but the actual bind still fails with `EAFNOSUPPORT`/`EADDRNOTAVAIL` (e.g. IPv6 disabled via sysctl), auto mode retries as IPv4 — explicit `-6` mode re-raises instead.
 
 **Why it was done this way:** `socket.has_dualstack_ipv6()` performs the platform check without attempting a bind. This avoids partially-initialized socket objects that would need cleanup on exception. The `__new__` + manual `__init__` pattern in `_make_server()` exists because `address_family` must be set BEFORE `HTTPServer.__init__()` creates the socket.
 
@@ -337,4 +337,4 @@ These are sharp edges in the codebase that exist for good reasons. Do not "fix" 
 
 **Why notify-only:** Automatic self-update is intentionally not implemented, for security reasons — pasla only *notifies*, and the user applies the update manually. This is not a categorical rejection; a well-designed auto-update may be added in the future. The checker treats the fetched body as untrusted (size-capped read, strict three-component parsing) and only ever compares and displays it — it never downloads or runs code. TLS validation is left at the stdlib default; the request runs off-thread and never blocks serving, and every failure is swallowed at `log.debug`.
 
-**Do not:** Disable TLS certificate validation or add a custom `ssl` context for the check. Do not let it block the serve path. Do not add a CLI flag or env var to toggle it — disabling is a deliberate, persistent choice the user makes in their own config file.
+**Do not:** Disable TLS certificate validation or add a custom `ssl` context for the check. Do not let it block the serve path. Do not add a CLI flag or env var to toggle it — disabling is a deliberate, persistent choice the user makes in their own config file. The single existing exception is `PASLA_CI`: when that env var is set (as `.github/workflows/ci.yml` does) the check is skipped entirely so test runs never make outbound requests — it is a CI guard, not a user-facing toggle.

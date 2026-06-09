@@ -100,7 +100,9 @@ CONFIG FILE
     # cert = /etc/letsencrypt/live/share.example.com/fullchain.pem
     # key  = /etc/letsencrypt/live/share.example.com/privkey.pem
 
-  Priority: CLI argument > environment variable > config file > default
+  Priority: CLI argument > config file > default.  (PASLA_* tuning
+  constants are a separate, environment-only track with no CLI flag
+  and no config-file key.)
 
 FREE-THREADED MODE (Python 3.13t+)
   python3.13t pasla report.pdf
@@ -1626,10 +1628,12 @@ def read_all_registry() -> list[dict]:
 # ---------------------------------------------------------------------------
 # Process liveness check
 #
-# os.kill(pid, 0) works on all platforms:
+# POSIX uses os.kill(pid, 0):
 #   - ProcessLookupError  → process does not exist
 #   - PermissionError     → process exists but belongs to another user
 #   - No exception        → process exists and is ours
+# Windows uses OpenProcess + GetExitCodeProcess via ctypes, because
+# os.kill(pid, 0) is unreliable there (it can terminate the target).
 # ---------------------------------------------------------------------------
 
 def pid_is_alive(pid: int) -> bool:
@@ -4195,8 +4199,8 @@ def cmd_detach(argv_rest: list[str]) -> None:
                                 print(f"IPv6: {url6}")
                             if not url4 and not url6:
                                 # Should never happen in practice -
-                                # detect_public_ips falls back to a
-                                # placeholder string - but keep an
+                                # detect_public_ips falls back to the
+                                # loopback address - but keep an
                                 # explicit signal so an empty status
                                 # is never silently masked.
                                 print("URL : (no public IP detected)")

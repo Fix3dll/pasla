@@ -309,6 +309,7 @@ pasla stop <id> | pasla stop --all
 | `0` | Success / clean shutdown. |
 | `1` | Configuration or validation error (bad path, occupied port, bad CIDR, etc.). |
 | `2` | Detach failed (background process did not become ready in time). |
+| `130` | Interrupted with Ctrl+C while waiting for a detached daemon to start. |
 
 ---
 
@@ -841,7 +842,7 @@ loop.
 git clone https://github.com/Fix3dll/pasla.git
 cd pasla
 python -m pytest -q
-python -m pytest --cov=pasla --cov-report=term
+python -m pytest --cov=. --cov-report=term-missing
 python -c "import py_compile; py_compile.compile('pasla', doraise=True)"
 ```
 
