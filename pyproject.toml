@@ -2,6 +2,10 @@
 name = "pasla"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
+# The repo-root VERSION file is the single source of truth (see
+# AGENTS.md §9).  Declared dynamic for PEP 621 conformance; this
+# project has no build/packaging target that would resolve it.
+dynamic = ["version"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
