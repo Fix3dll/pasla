@@ -1,0 +1,3 @@
+# Repository content is LF. Working trees on Windows/WSL may produce CRLF;
+# the text attribute normalises them so line endings never show up as diffs.
+* text=auto eol=lf
