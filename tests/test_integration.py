@@ -523,6 +523,29 @@ class TestGracefulShutdown:
                     f"/{live_server.token}/{live_server.file_name}")
         assert resp.status == 503
 
+    def test_download_cap_triggers_graceful_shutdown(self, tmp_file, tmp_path):
+        """Reaching max_downloads must set the shutdown flag and make
+        the server answer subsequent requests with 503."""
+        from tests.conftest import _start_server
+        file_path, file_sha256 = tmp_file
+        gen = _start_server(file_path, file_sha256, tmp_path, max_downloads=1)
+        s = next(gen)
+        try:
+            resp = _get(s.host, s.port, f"/{s.token}/{s.file_name}")
+            assert resp.status == 200
+            resp.read()
+
+            # The flag is set by the worker thread right after the
+            # transfer completes; wait for it without sleeping.
+            assert wait_until(lambda: pasla.shutting_down.is_set()), (
+                "download cap did not trigger graceful shutdown"
+            )
+
+            resp2 = _get(s.host, s.port, f"/{s.token}/{s.file_name}")
+            assert resp2.status == 503
+        finally:
+            gen.close()
+
 # ---------------------------------------------------------------------------
 # Bytes transferred counter
 # ---------------------------------------------------------------------------
