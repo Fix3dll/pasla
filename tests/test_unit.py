@@ -2542,6 +2542,20 @@ class TestParseAndValidate:
         assert ns.resolved_file == str(f)
         assert ns.duration_seconds == 60 * 60  # 60 min default
 
+    @pytest.mark.skipif(sys.platform == "win32",
+                        reason="Backslash is a path separator on Windows")
+    def test_backslash_in_file_name_rejected(self, monkeypatch, tmp_path):
+        """A POSIX file name containing a backslash can never match the
+        sanitised request path (\\ is converted to / before comparison),
+        so serve mode must refuse it instead of issuing a dead link."""
+        f = tmp_path / "back\\slash.txt"
+        f.write_text("data", encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", ["pasla", str(f)])
+        monkeypatch.setattr(pasla, "ALLOWED_ROOT", str(tmp_path))
+        with pytest.raises(SystemExit) as exc_info:
+            pasla.parse_and_validate()
+        assert exc_info.value.code == 1
+
     def test_serve_mode_with_options(self, monkeypatch, tmp_path):
         """Serve mode must capture duration, max_downloads, and flags."""
         f = tmp_path / "opts.txt"

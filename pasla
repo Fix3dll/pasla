@@ -202,7 +202,7 @@ log = logging.getLogger("pasla")
 # file is the single source of truth; this constant MUST match it and a
 # test enforces that.  Exposed via --version, the control plane
 # get_status(), and --json - deliberately NOT in the HTTP Server header.
-__version__ = "2026.1.4"
+__version__ = "2026.1.5"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -1306,6 +1306,19 @@ def parse_and_validate() -> argparse.Namespace:
         sys.exit(1)
 
     resolved = _resolve_target(resolved, args)
+
+    # POSIX file names may legally contain backslashes, but the
+    # request-path defence pipeline converts every "\" to "/" before
+    # the constant-time comparison, so a URL for such a file can never
+    # match - every recipient would get 404.  Refuse up front instead
+    # of serving a link that is dead by construction.
+    if os.name != "nt" and "\\" in os.path.basename(resolved):
+        log.error(
+            "File name %r contains a backslash, which the URL "
+            "sanitiser cannot represent. Rename the file and retry.",
+            os.path.basename(resolved),
+        )
+        sys.exit(1)
 
     args.resolved_file    = resolved
     args.duration_seconds = args.duration * 60
