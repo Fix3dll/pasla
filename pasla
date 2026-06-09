@@ -202,7 +202,7 @@ log = logging.getLogger("pasla")
 # file is the single source of truth; this constant MUST match it and a
 # test enforces that.  Exposed via --version, the control plane
 # get_status(), and --json - deliberately NOT in the HTTP Server header.
-__version__ = "2026.1.3"
+__version__ = "2026.1.4"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -986,7 +986,7 @@ def _generate_ephemeral_cert(cert_dir: str) -> tuple[str, str]:
             os.chmod(key_path, 0o600)
             os.chmod(cert_path, 0o600)
         except OSError:
-            pass
+            log.debug("Failed to chmod ephemeral TLS material", exc_info=True)
 
     return cert_path, key_path
 
@@ -1005,7 +1005,7 @@ def _get_cert_fingerprint(cert_path: str) -> str:
             if "=" in line:
                 return line.split("=", 1)[1].strip()
     except (OSError, subprocess.TimeoutExpired):
-        pass
+        log.debug("Could not read certificate fingerprint", exc_info=True)
     return "(unknown)"
 
 
@@ -1426,7 +1426,8 @@ def _harden_registry_dir() -> None:
         try:
             os.chmod(REGISTRY_DIR, 0o700)
         except OSError:
-            pass
+            log.debug("Failed to chmod registry dir %s", REGISTRY_DIR,
+                      exc_info=True)
         # Ownership validation: on multi-user POSIX systems with a
         # world-writable $TMPDIR (e.g. /tmp with sticky bit), an
         # attacker can pre-create the registry directory under their
@@ -1558,7 +1559,8 @@ def delete_registry(instance_id: str) -> None:
     try:
         registry_path(instance_id).unlink(missing_ok=True)
     except OSError:
-        pass
+        log.debug("Failed to delete registry entry %s", instance_id,
+                  exc_info=True)
 
 
 def _registry_entry_is_valid(entry: object) -> bool:
@@ -3310,7 +3312,7 @@ def detect_public_ips(ip_mode: str | None = None) -> dict[str, str]:
                     s.connect(IP4_ROUTE_PROBE)
                     ipv4 = s.getsockname()[0]
             except OSError:
-                pass
+                log.debug("IPv4 route probe failed", exc_info=True)
         if ipv4 is None:
             log.warning(
                 "Could not determine any IPv4 address; falling back to "
@@ -3329,7 +3331,7 @@ def detect_public_ips(ip_mode: str | None = None) -> dict[str, str]:
                     s.connect(IP6_ROUTE_PROBE)
                     ipv6 = s.getsockname()[0]
             except OSError:
-                pass
+                log.debug("IPv6 route probe failed", exc_info=True)
         if ipv6 is None:
             log.warning(
                 "Could not determine any IPv6 address; falling back to "
