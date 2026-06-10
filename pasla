@@ -204,7 +204,7 @@ log = logging.getLogger("pasla")
 # file is the single source of truth; this constant MUST match it and a
 # test enforces that.  Exposed via --version, the control plane
 # get_status(), and --json - deliberately NOT in the HTTP Server header.
-__version__ = "2026.1.5"
+__version__ = "2026.1.6"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -4226,6 +4226,8 @@ def _check_tls_key_perms(key_path: str) -> None:
     try:
         mode = os.stat(key_path).st_mode & 0o777
     except OSError:
+        log.debug("Could not stat TLS key %s; skipping permission check",
+                  key_path, exc_info=True)
         return
     if mode & 0o077:
         log.warning(
