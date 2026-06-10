@@ -311,6 +311,34 @@ pasla stop <id> | pasla stop --all
 | `2` | Detach failed (background process did not become ready in time). |
 | `130` | Interrupted with Ctrl+C while waiting for a detached daemon to start. |
 
+### JSON output reference
+
+`--json` prints exactly one JSON object on stdout.  Fields marked *opt.*
+are present only when applicable.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | Instance ID (8 hex chars). |
+| `version` | string | pasla version (CalVer). |
+| `url_ipv4` / `url_ipv6` | string, opt. | Download URL per address family. |
+| `file` | string | Served file name (foreground serve only). |
+| `port` | int | Bound port (foreground serve only). |
+| `file_sha256` | string, opt. | Hex digest when checksumming is enabled. |
+| `expires_seconds` | int | Link lifetime (foreground serve only). |
+| `max_downloads` | int | `0` = unlimited (foreground serve only). |
+| `dry_run` | bool, opt. | Present and `true` only with `--dry-run`. |
+
+With `-d --json` the parent process prints only `id`, `version`, and the
+URL fields — everything else is queried live from the daemon.
+
+The control-plane `status` response (what `pasla list` consumes)
+additionally carries the live counters: `remaining_seconds`, `duration`,
+`download_count` (slots consumed, capped mode), `completed_downloads`
+(fully delivered transfers), `bytes_transferred`, `active_transfers`,
+`banned_ips`, `trust_proxy`, `https`, `update_available` (*opt.*), and
+`recent_downloads` — a list of `{time, ip, size}` entries for the last
+10 downloads.
+
 ---
 
 ## HTTPS mode
