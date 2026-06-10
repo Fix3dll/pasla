@@ -219,7 +219,7 @@ pasla -d big.iso 120 5
 pasla list
 
 # Stop a specific instance (or all of them)
-pasla stop a1b2c3
+pasla stop a1b2c3d4
 pasla stop --all
 ```
 
@@ -227,7 +227,7 @@ The startup banner shows:
 
 ```
 ──────────────────────────────────────────
-  ID          : a1b2c3
+  ID          : a1b2c3d4
   File        : report.pdf
   Port        : 47391 (auto)
   Expires     : 60 minute(s)
@@ -876,9 +876,9 @@ no `time.sleep` in tests, narrow exception clauses.
   `sysctl net.ipv6.conf.all.disable_ipv6=1`), `pasla` falls back to
   IPv4 and logs a warning.  No exception escapes.  Use `-4` to skip
   the probe entirely.
-- **Instance ID is 24 bits** — `secrets.token_hex(3)`, ~16 M space.
-  Birthday collision around 4 K live instances; not a concern for
-  realistic operator workloads.
+- **Instance ID is 32 bits** — `secrets.token_hex(4)`, ~4.3 B space.
+  Birthday collision around 65 K live instances; far beyond any
+  realistic operator workload.
 - **TLS validity is 365 days** — the cert is ephemeral in the sense
   that it is cleaned on shutdown, but the validity window is long
   so a SIGKILL-leaked key remains technically valid until the next

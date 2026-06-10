@@ -72,7 +72,7 @@ EXAMPLES
   pasla report.zip --https --checksum
   pasla report.zip --json --dry-run
   pasla list
-  pasla stop a1b2c3
+  pasla stop a1b2c3d4
   pasla stop --all
 
 CONFIG FILE
@@ -204,7 +204,7 @@ log = logging.getLogger("pasla")
 # file is the single source of truth; this constant MUST match it and a
 # test enforces that.  Exposed via --version, the control plane
 # get_status(), and --json - deliberately NOT in the HTTP Server header.
-__version__ = "2026.1.6"
+__version__ = "2026.1.7"
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -315,7 +315,10 @@ DETACH_POLL_INTERVAL      = 0.1          # seconds - registry file poll interval
 STATE_CLEANUP_INTERVAL    = 300          # seconds - background state purge interval
 
 # --- Instance identity ---
-INSTANCE_ID_BYTES         = 3            # length arg for secrets.token_hex (instance IDs)
+INSTANCE_ID_BYTES         = 4            # length arg for secrets.token_hex (instance IDs)
+                                         # 32 bits: birthday collision odds stay
+                                         # negligible even with tens of thousands
+                                         # of simultaneous instances.
 TMP_DIR_SUFFIX_BYTES      = 3            # length arg for secrets.token_hex (.tmp_* dirs)
 MAX_RECENT_DOWNLOADS      = 10           # entries kept in download_history deque
 
@@ -1378,7 +1381,7 @@ def parse_and_validate() -> argparse.Namespace:
 #
 #   pasla_<id>.json
 #   {
-#     "id":        "a1b2c3",
+#     "id":        "a1b2c3d4",
 #     "pid":       12345,
 #     "ctrl_port": 52341
 #   }
