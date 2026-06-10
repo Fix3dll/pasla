@@ -3619,19 +3619,15 @@ class _StatusBar:
 
     # -- Internal ----------------------------------------------------------
 
-    def _draw_unlocked(
-        self,
-        dl_snapshot: int | None = None,
-        xfer_snapshot: int | None = None,
-    ) -> None:
+    def _draw_unlocked(self, dl_snapshot: int, xfer_snapshot: int) -> None:
         """Render the status bar in place.
 
-        ``dl_snapshot`` and ``xfer_snapshot`` let the caller pre-read
-        the cross-thread counters under their own lock budget (see
-        ``_LiveLogHandler.emit``).  When ``None``, this method reads
-        them directly via the lock-safe accessors - appropriate for
-        the periodic background redraw where holding ``_lock`` while
-        briefly acquiring ``transfer_lock`` is harmless.
+        ``dl_snapshot`` and ``xfer_snapshot`` are required: every
+        caller must read the cross-thread counters BEFORE acquiring
+        ``_lock`` (see ``draw`` and ``_LiveLogHandler.emit``), so this
+        method never touches ``transfer_lock`` while the bar lock is
+        held.  Keeping the parameters mandatory makes that
+        lock-ordering invariant impossible to bypass accidentally.
         """
         try:
             self._cols = os.get_terminal_size().columns
@@ -3639,18 +3635,9 @@ class _StatusBar:
             self._cols = 80
 
         remaining = _fmt_remaining(self._started, self._duration)
-        if dl_snapshot is not None:
-            dl = dl_snapshot
-        elif self._max_downloads > 0:
-            dl = _current_download_count()
-        else:
-            dl = _current_completed_downloads()
+        dl = dl_snapshot
         cap = str(self._max_downloads) if self._max_downloads > 0 else "∞"
-        xfer_value = (
-            xfer_snapshot if xfer_snapshot is not None
-            else _current_bytes_transferred()
-        )
-        xfer = _fmt_bytes(xfer_value)
+        xfer = _fmt_bytes(xfer_snapshot)
 
         bar = f"  ⏱ {remaining} │ {dl}/{cap} downloads │ {xfer} │ Ctrl+C to stop"
         if len(bar) > self._cols:
