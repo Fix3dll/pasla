@@ -4153,8 +4153,24 @@ class TestHandleJoinsHeaderTimer:
 class TestTransferStallGuard:
     """``_send_chunk`` enforces a wall-clock deadline per chunk so a
     client that trickle-reads cannot tie up a worker thread forever.
-    These tests are deterministic: the deadline is forced to zero, no
-    sleeping involved."""
+
+    The real clock is never consulted: ``time.monotonic`` is replaced
+    with a counter that advances one second per call.  Relying on the
+    actual clock made these tests pass or fail depending on platform
+    timer resolution - on Windows (Python <= 3.12) ``monotonic()`` is
+    based on GetTickCount64 with ~15.6 ms granularity, so consecutive
+    calls return identical values and a zero deadline never trips.
+    """
+
+    def _install_fake_clock(self, monkeypatch):
+        """Replace time.monotonic with a deterministic ticking clock."""
+        state = {"t": 0.0}
+
+        def fake_monotonic():
+            state["t"] += 1.0
+            return state["t"]
+
+        monkeypatch.setattr(pasla.time, "monotonic", fake_monotonic)
 
     def _make_handler(self, tmp_path, fake_socket):
         f = tmp_path / "stall.bin"
@@ -4170,16 +4186,27 @@ class TestTransferStallGuard:
 
     def test_stalled_chunk_raises_timeout(self, tmp_path, monkeypatch):
         """A chunk that cannot be fully pushed before the deadline must
-        abort with TimeoutError - this is the slow-read defence."""
-        monkeypatch.setattr(pasla, "TRANSFER_STALL_TIMEOUT", 0)
+        abort with TimeoutError - this is the slow-read defence.
+
+        Timeline with the fake clock (1s per monotonic() call) and a
+        2-second stall timeout: deadline = 1 + 2 = 3; the first loop
+        check reads 2 (ok, one byte is sent), the second reads 4 > 3
+        and trips the guard after partial progress - exactly the
+        trickle-read pattern the defence exists for."""
+        self._install_fake_clock(monkeypatch)
+        monkeypatch.setattr(pasla, "TRANSFER_STALL_TIMEOUT", 2)
+
+        sent_calls = []
 
         class TrickleSocket:
             def send(self, data):
-                return 1   # one byte per call → deadline check trips
+                sent_calls.append(len(data))
+                return 1   # one byte per call - never finishes the chunk
 
         h, _ = self._make_handler(tmp_path, TrickleSocket())
         with pytest.raises(TimeoutError):
             h._send_chunk(memoryview(b"abcdef"), "203.0.113.9")
+        assert sent_calls, "guard must trip after partial progress, not before"
 
     def test_zero_send_raises_connection_error(self, tmp_path):
         """send() returning 0 means the peer is gone - must raise."""
@@ -4197,7 +4224,8 @@ class TestTransferStallGuard:
         """``_stream_file`` must absorb the stall TimeoutError and
         report (completed=False, bytes_sent) so the slot-refund logic
         in ``_release_transfer`` sees the truth."""
-        monkeypatch.setattr(pasla, "TRANSFER_STALL_TIMEOUT", 0)
+        self._install_fake_clock(monkeypatch)
+        monkeypatch.setattr(pasla, "TRANSFER_STALL_TIMEOUT", 2)
 
         class TrickleSocket:
             def send(self, data):
